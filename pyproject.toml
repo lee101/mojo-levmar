@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mojo-levmar"
+version = "0.1.0"
+description = "Mojo port of levmar nonlinear least squares"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=2"]
+license = "GPL-2.0-or-later"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+
+[tool.setuptools.packages.find]
+where = ["python"]
