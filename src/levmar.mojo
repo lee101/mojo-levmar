@@ -64,12 +64,37 @@ def residual_norm2[
     hx: UnsafePointer[Scalar[dtype], AnyOrigin[mut=True]],
     n: Int,
 ) -> Scalar[dtype]:
+    comptime W = simd_width_of[dtype]()
     var total: Scalar[dtype] = scalar[dtype](0.0)
-    for i in range(n):
+    var i = 0
+    while i + W <= n:
+        var value = x.load[width=W](i) - hx.load[width=W](i)
+        dst.store(i, value)
+        total += (value * value).reduce_add()
+        i += W
+    while i < n:
         var value = x[i] - hx[i]
         dst[i] = value
         total += value * value
+        i += 1
     return total
+
+
+def copy_values[
+    dtype: DType
+](
+    dst: UnsafePointer[Scalar[dtype], AnyOrigin[mut=True]],
+    src: UnsafePointer[Scalar[dtype], AnyOrigin[mut=True]],
+    n: Int,
+):
+    comptime W = simd_width_of[dtype]()
+    var i = 0
+    while i + W <= n:
+        dst.store(i, src.load[width=W](i))
+        i += W
+    while i < n:
+        dst[i] = src[i]
+        i += 1
 
 
 # levmar: lm_core.c LEVMAR_DER normal-equation accumulation
@@ -88,22 +113,22 @@ def normal_equations[
         external_call["cblas_dgemv", NoneType](
             101, 112, n, m, 1.0, jac, m, e, 1, 0.0, jte, 1
         )
-        external_call["cblas_dgemm", NoneType](
+        external_call["cblas_dsyrk", NoneType](
             101,
+            122,
             112,
-            111,
-            m,
             m,
             n,
             1.0,
-            jac,
-            m,
             jac,
             m,
             0.0,
             jtj,
             m,
         )
+        for i in range(m):
+            for j in range(i + 1, m):
+                jtj[i * m + j] = jtj[j * m + i]
         return
 
     for i in range(m * m):
@@ -265,10 +290,19 @@ def evaluate[
     m: Int,
 ) -> Scalar[dtype]:
     callback[dtype](func_addr, p_addr, dst_addr, m, n, data_addr)
+    comptime W = simd_width_of[dtype]()
     var total: Scalar[dtype] = scalar[dtype](0.0)
-    for i in range(n):
-        dst[i] = x[i] - dst[i]
-        total += dst[i] * dst[i]
+    var i = 0
+    while i + W <= n:
+        var residual = x.load[width=W](i) - dst.load[width=W](i)
+        dst.store(i, residual)
+        total += (residual * residual).reduce_add()
+        i += W
+    while i < n:
+        var residual = x[i] - dst[i]
+        dst[i] = residual
+        total += residual * residual
+        i += 1
     return total
 
 
@@ -487,8 +521,7 @@ def levmar_core[
                     nu = 2
                     for i in range(m):
                         p[i] = pdp[i]
-                    for i in range(n):
-                        e[i] = hx[i]
+                    copy_values[dtype](e, hx, n)
                     error2 = candidate2
                     accepted = True
                     break
@@ -512,8 +545,7 @@ def levmar_core[
                         if candidate2 < error2:
                             for i in range(m):
                                 p[i] = pdp[i]
-                            for i in range(n):
-                                e[i] = hx[i]
+                            copy_values[dtype](e, hx, n)
                             error2 = candidate2
                             accepted = True
                             break
@@ -686,10 +718,7 @@ def levmar_dif_core[
             else:
                 callback[dtype](func_addr, pdp_addr, wrk_addr, m, n, data_addr)
                 nfev += 1
-                var candidate2: Scalar[dtype] = scalar[dtype](0.0)
-                for i in range(n):
-                    wrk2[i] = x[i] - wrk[i]
-                    candidate2 += wrk2[i] * wrk2[i]
+                var candidate2 = residual_norm2[dtype](wrk2, x, wrk, n)
                 if not finite[dtype](candidate2):
                     stop = 7
                 else:
@@ -720,9 +749,8 @@ def levmar_dif_core[
                         nu = 2
                         for i in range(m):
                             p[i] = pdp[i]
-                        for i in range(n):
-                            e[i] = wrk2[i]
-                            hx[i] = wrk[i]
+                        copy_values[dtype](e, wrk2, n)
+                        copy_values[dtype](hx, wrk, n)
                         error2 = candidate2
                         updated_parameters = True
                         iterations += 1

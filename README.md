@@ -147,16 +147,21 @@ difference refresh and rank-one update rules—inside Mojo.
 
 Each iteration accumulates `J.T @ J` and `J.T @ e` from the row-major Jacobian,
 augments the diagonal by `mu`, and solves the dense system with pivoted LU.
-Small problems use explicit Mojo SIMD with scalar remainder loops. Large dense
-problems dispatch to the installed BLAS for its tuned SIMD and threading, as
-does the large `J @ Z` equality-constraint transform. Accepted steps use
-levmar's cubic damping update; rejected steps increase `mu` geometrically. Box
-solves project trial steps and use a backtracking path when the full projected
-LM step is rejected. Equality solves parameterize every feasible point as
-`p = c + Z @ q` and optimize the free coordinates `q`.
+Residual formation, squared-norm reductions, and accepted-state copies use
+explicit Mojo SIMD with scalar remainder loops. Small normal equations use the
+same SIMD strategy. Large dense problems dispatch to BLAS, using a symmetric
+rank-k update so that `J.T @ J` computes only one triangle, while the large
+`J @ Z` equality-constraint transform uses threaded BLAS matrix multiply.
+Accepted steps use levmar's cubic damping update; rejected steps increase `mu`
+geometrically. Box solves project trial steps and use a backtracking path when
+the full projected LM step is rejected. Equality solves parameterize every
+feasible point as `p = c + Z @ q` and optimize the free coordinates `q`.
 
-There is no GPU path. Model and Jacobian callbacks produce host NumPy arrays,
-and this port keeps the complete solve on the CPU.
+There is no GPU path. The benchmark's largest normal equation consumes a
+roughly 3.8 MB Jacobian for only about 8 million arithmetic operations, and
+every fresh model and Jacobian comes from a host NumPy callback. Moving those
+buffers to a device on every iteration would make this launch- and
+transfer-bound, so the port keeps the complete solve on the CPU.
 
 ## Benchmarks
 
@@ -168,10 +173,10 @@ Mojo is faster.
 
 | case | Mojo | upstream C | upstream / Mojo |
 |---|---:|---:|---:|
-| analytic exponential, n=20k | 10.14 ms | 10.34 ms | 1.02x |
-| finite-difference exponential, n=20k | 12.13 ms | 12.68 ms | 1.05x |
-| analytic dense linear, 30k x 16 | 38.00 ms | 56.00 ms | 1.47x |
-| box analytic exponential, n=20k | 11.35 ms | 8.07 ms | 0.71x |
-| linear constraint, 30k x 16 | 39.03 ms | 64.98 ms | 1.66x |
+| analytic exponential, n=20k | 9.38 ms | 10.09 ms | 1.08x |
+| finite-difference exponential, n=20k | 11.87 ms | 12.28 ms | 1.03x |
+| analytic dense linear, 30k x 16 | 53.94 ms | 67.99 ms | 1.26x |
+| box analytic exponential, n=20k | 7.44 ms | 8.19 ms | 1.10x |
+| linear constraint, 30k x 16 | 49.78 ms | 77.34 ms | 1.55x |
 
 These are complete solve timings, including Python callbacks and allocations.
