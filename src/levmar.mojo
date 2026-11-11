@@ -68,7 +68,7 @@ def residual_norm2[
     var total: Scalar[dtype] = scalar[dtype](0.0)
     var i = 0
     while i + W <= n:
-        var value = x.load[width=W](i) - hx.load[width=W](i)
+        var value = x.unsafe_load[width=W](i) - hx.unsafe_load[width=W](i)
         dst.store(i, value)
         total += (value * value).reduce_add()
         i += W
@@ -90,7 +90,7 @@ def copy_values[
     comptime W = simd_width_of[dtype]()
     var i = 0
     while i + W <= n:
-        dst.store(i, src.load[width=W](i))
+        dst.store(i, src.unsafe_load[width=W](i))
         i += W
     while i < n:
         dst[i] = src[i]
@@ -142,8 +142,8 @@ def normal_equations[
         while i + W <= m:
             jte.store(
                 i,
-                jte.load[width=W](i)
-                + row.load[width=W](i) * residual,
+                jte.unsafe_load[width=W](i)
+                + row.unsafe_load[width=W](i) * residual,
             )
             i += W
         while i < m:
@@ -157,8 +157,8 @@ def normal_equations[
                 var offset = i * m + j
                 jtj.store(
                     offset,
-                    jtj.load[width=W](offset)
-                    + row.load[width=W](j) * alpha_vector,
+                    jtj.unsafe_load[width=W](offset)
+                    + row.unsafe_load[width=W](j) * alpha_vector,
                 )
                 j += W
             while j <= i:
@@ -294,7 +294,7 @@ def evaluate[
     var total: Scalar[dtype] = scalar[dtype](0.0)
     var i = 0
     while i + W <= n:
-        var residual = x.load[width=W](i) - dst.load[width=W](i)
+        var residual = x.unsafe_load[width=W](i) - dst.unsafe_load[width=W](i)
         dst.store(i, residual)
         total += (residual * residual).reduce_add()
         i += W
@@ -855,7 +855,7 @@ def jacobian_times_basis[
             var total = SIMD[dtype, W](scalar[dtype](0.0))
             for k in range(m):
                 total += (
-                    basis.load[width=W](k * free_m + j)
+                    basis.unsafe_load[width=W](k * free_m + j)
                     * SIMD[dtype, W](jac[i * m + k])
                 )
             dst.store(i * free_m + j, total)
